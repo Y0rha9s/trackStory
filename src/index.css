@@ -1,0 +1,89 @@
+@import url("https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@400;500;700;800&display=swap");
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "M PLUS Rounded 1c", ui-rounded, system-ui, sans-serif;
+  --color-sky: var(--sky);
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-panel: var(--panel);
+  --color-line: var(--line);
+  --color-tile: var(--tile);
+  --color-tile-deep: var(--tile-deep);
+  --color-exp: var(--exp);
+  --color-rail: var(--rail);
+  --color-bad: var(--bad);
+  --color-good: var(--good);
+}
+
+:root {
+  --sky: #dceef8;
+  --ink: #1d2b3a;
+  --ink-soft: #4f6478;
+  --panel: #ffffff;
+  --line: #9cc3dd;
+  --tile: #f08a1c;
+  --tile-deep: #b85d06;
+  --exp: #b5d334;
+  --rail: #2e3a43;
+  --bad: #c2412d;
+  --good: #3f8a3a;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --sky: #12202e;
+    --ink: #e6f0f7;
+    --ink-soft: #9fb4c6;
+    --panel: #1b2d3e;
+    --line: #34506a;
+    --tile: #f39a35;
+    --tile-deep: #c46a10;
+    --exp: #b9d93f;
+    --rail: #0b141c;
+    --bad: #ef7a63;
+    --good: #8fcf73;
+    color-scheme: dark;
+  }
+}
+
+html,
+body {
+  background: var(--sky);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
+}
+
+:focus-visible {
+  outline: 3px solid var(--tile);
+  outline-offset: 2px;
+}
+
+/* El "riel" de la barra de EXP: borde biselado como el HUD, dibujado en CSS. */
+.exp-rail {
+  background: var(--rail);
+  border-radius: 10px;
+  box-shadow:
+    inset 0 2px 0 rgb(255 255 255 / 0.08),
+    inset 0 -3px 0 rgb(0 0 0 / 0.35);
+}
+.exp-fill {
+  background: linear-gradient(180deg, color-mix(in oklab, var(--exp) 70%, white) 0%, var(--exp) 45%, color-mix(in oklab, var(--exp) 70%, #3b5a10) 100%);
+  border-radius: 8px;
+  transition: width 900ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.lv-tile {
+  background: linear-gradient(180deg, color-mix(in oklab, var(--tile) 80%, white), var(--tile) 55%, var(--tile-deep));
+  color: #fff6e3;
+  border-radius: 14px;
+  box-shadow: inset 0 -4px 0 rgb(0 0 0 / 0.18);
+  text-shadow: 0 2px 0 var(--tile-deep);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .exp-fill {
+    transition: none;
+  }
+}
