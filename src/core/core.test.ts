@@ -104,3 +104,16 @@ describe("metrics", () => {
     expect(computeMetrics(s, 40_000).ratePerHour).toBeNull();
   });
 });
+
+describe("nivel deducido con sesión en curso", () => {
+  it("acepta de inmediato si coincide con el nivel de la sesión", () => {
+    const v = new ReadingValidator();
+    const res = v.validate(r({ level: null, levelHint: "4?" }), 40, 220_000);
+    expect(res.ok).toBe(true);
+  });
+  it("rechaza si los dígitos legibles contradicen la EXP", () => {
+    const v = new ReadingValidator();
+    const res = v.validate(r({ level: null, levelHint: "3?" }), 40, 220_000);
+    expect(res.ok).toBe(false);
+  });
+});

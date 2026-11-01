@@ -8,7 +8,7 @@ import { MesoValidator } from "../core/mesos";
 import { emptySamples, learnFromFrame, mergeTemplates, samplesToTemplates } from "../ocr/train";
 import { ReadingValidator } from "../core/validator";
 import { recognizeInBrowser } from "./neuralWorker";
-import { store } from "./store";
+import { store, type LogEntry } from "./store";
 
 export const INTERVAL_MS = 10_000;
 const RETRY_DELAY_MS = 250;
@@ -52,6 +52,7 @@ class Tracker {
   private busy = false;
   private resumeFlag = false;
   private debugListeners = new Set<DebugListener>();
+  private pendingLog: LogEntry | null = null;
   private userTemplates = loadUserTemplates();
   templates: TemplateSet = mergeTemplates(baseTemplates as TemplateSet, this.userTemplates);
   lastDebug: DebugFrame | null = null;
@@ -183,6 +184,9 @@ class Tracker {
           outcome = await this.process(shot.img, shot.frameId);
         }
       }
+      // Solo el resultado final del ciclo va al registro (un "confirmando…" seguido de ✓ no es un error).
+      if (this.pendingLog) store.log(this.pendingLog);
+      this.pendingLog = null;
     } finally {
       this.busy = false;
     }
@@ -206,10 +210,10 @@ class Tracker {
       verdict = read?.debug.expReason ?? "Sin lectura";
       result = "retry";
       this.regions = undefined;
-      store.log({ t, ok: false, text: read?.expText ?? "—", reason: verdict, source: read?.source ?? undefined });
+      this.pendingLog = { t, ok: false, text: read?.expText ?? "—", reason: verdict, source: read?.source ?? undefined };
     } else {
       const v = this.validator.validate(
-        { level: read.level, amount: read.amount, pct: read.pct, frameId, t, source: read.source ?? undefined },
+        { level: read.level, amount: read.amount, pct: read.pct, frameId, t, source: read.source ?? undefined, levelHint: read.levelText },
         st.level,
         lastSample && lastSample.level === st.level ? lastSample.exp : null,
       );
@@ -225,18 +229,24 @@ class Tracker {
           ...(seg ? { segmentStart: true } : {}),
         });
         verdict = v.note ?? (v.value.levelSource === "exp" ? "Aceptada · nivel deducido de la EXP" : "Aceptada");
-        store.log({
+        // Autoaprendizaje: si los dígitos del nivel salieron ambiguos pero el nivel quedó validado por la EXP,
+        // ese frame es un ejemplo etiquetado seguro → se aprenden esos dígitos para la próxima vez.
+        if (v.value.levelSource === "exp" && read.levelText !== String(v.value.level)) {
+          const n = this.learn(img, String(v.value.level), null).level;
+          if (n) verdict += ` · aprendí los dígitos del nivel ${v.value.level}`;
+        }
+        this.pendingLog = {
           t,
           ok: true,
           text: `Nv ${v.value.level} · ${v.value.estimated ? "~" : ""}${v.value.exp.toLocaleString("es-CL")} (${v.value.pct?.toFixed(2) ?? "?"}%)`,
           source: read.source ?? undefined,
           estimated: v.value.estimated,
-        });
+        };
         result = "ok";
       } else {
         verdict = v.reason;
         if (v.conflictLevel) store.set({ conflictLevel: v.conflictLevel }, false);
-        store.log({ t, ok: false, text: `Nv ${read.levelText ?? "?"} · ${read.expText ?? "—"}`, reason: v.reason, source: read.source ?? undefined });
+        this.pendingLog = { t, ok: false, text: `Nv ${read.levelText ?? "?"} · ${read.expText ?? "—"}`, reason: v.reason, source: read.source ?? undefined };
         result = v.retry ? "retry" : "rejected";
       }
     }
@@ -288,8 +298,13 @@ class Tracker {
   trainFromCurrentFrame(level: string, exp: string) {
     const shot = this.grab();
     if (!shot) return { level: 0, exp: 0 };
+    return this.learn(shot.img, level || null, exp || null);
+  }
+
+  /** Agrega glifos etiquetados a las plantillas propias (guardadas en este navegador). */
+  private learn(img: Img, level: string | null, exp: string | null) {
     const samples = emptySamples();
-    const res = learnFromFrame(shot.img, level || null, exp || null, samples);
+    const res = learnFromFrame(img, level, exp, samples);
     if (res.level + res.exp === 0) return res;
     const learned = samplesToTemplates(samples);
     const prev = this.userTemplates ?? { exp: [], level: [] };

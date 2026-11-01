@@ -13,6 +13,8 @@ export interface RawReading {
   /** Timestamp de captura (ms). */
   t: number;
   source?: "glyph" | "neural" | "manual";
+  /** Texto parcial de los dígitos de nivel ("3?"): el nivel deducido debe calzar con lo que sí se leyó. */
+  levelHint?: string | null;
 }
 
 export interface AcceptedReading {
@@ -89,14 +91,24 @@ export class ReadingValidator {
           return { ok: false, reason: "Nivel ilegible y muy poca EXP para inferirlo", retry: false };
         }
         const cand = candidates[0];
-        const p = this.pendingInferred;
-        if (!p || p.level !== cand || p.frameId === r.frameId || r.t - p.t > INFER_WINDOW_MS) {
-          this.pendingInferred = { level: cand, frameId: r.frameId, t: r.t };
-          return { ok: false, reason: `Nivel ${cand} deducido de la EXP; confirmando con otro frame`, retry: true };
+        if (r.levelHint && !hintMatches(r.levelHint, cand)) {
+          return { ok: false, reason: `Los dígitos legibles (${r.levelHint}) no calzan con el nivel ${cand} deducido de la EXP`, retry: true };
         }
-        this.pendingInferred = null;
-        level = cand;
-        levelSource = "exp";
+        // Si coincide con el nivel de la sesión, la continuidad ya confirma: no hace falta otro frame.
+        if (cand === sessionLevel) {
+          this.pendingInferred = null;
+          level = cand;
+          levelSource = "exp";
+        } else {
+          const p = this.pendingInferred;
+          if (!p || p.level !== cand || p.frameId === r.frameId || r.t - p.t > INFER_WINDOW_MS) {
+            this.pendingInferred = { level: cand, frameId: r.frameId, t: r.t };
+            return { ok: false, reason: `Nivel ${cand} deducido de la EXP; confirmando con otro frame`, retry: true };
+          }
+          this.pendingInferred = null;
+          level = cand;
+          levelSource = "exp";
+        }
       }
     }
 
@@ -150,4 +162,12 @@ export class ReadingValidator {
         : Math.round((pct / 100) * req);
     return { ok: true, value: { level, exp, pct, estimated: true, levelSource } };
   }
+}
+
+/** "3?" calza con 35; "3?" no calza con 45 ni con 5. */
+export function hintMatches(hint: string, level: number): boolean {
+  const s = String(level);
+  if (hint.length !== s.length) return true; // tiles mal contados: no comparable
+  for (let i = 0; i < s.length; i++) if (hint[i] !== "?" && hint[i] !== s[i]) return false;
+  return true;
 }
