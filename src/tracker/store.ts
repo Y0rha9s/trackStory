@@ -1,4 +1,5 @@
 import type { Sample } from "../core/metrics";
+import type { MesoSample } from "../core/mesos";
 
 export interface LogEntry {
   t: number;
@@ -15,6 +16,9 @@ export interface SessionState {
   sessionNo: number;
   startedAt: number;
   samples: Sample[];
+  mesoSamples: MesoSample[];
+  /** estado legible de la lectura de mesos */
+  mesoStatus: string;
   log: LogEntry[];
   /** nivel actual de la sesión */
   level: number | null;
@@ -38,6 +42,8 @@ const fresh = (n = 1): SessionState => ({
   sessionNo: n,
   startedAt: Date.now(),
   samples: [],
+  mesoSamples: [],
+  mesoStatus: "Abre el inventario para medir mesos",
   log: [],
   level: null,
   paused: false,
@@ -104,6 +110,10 @@ class Store {
     }));
   }
 
+  addMesoSample(s: MesoSample) {
+    this.set((st) => ({ mesoSamples: [...st.mesoSamples, s].slice(-MAX_SAMPLES) }));
+  }
+
   log(e: LogEntry) {
     this.set((st) => ({ log: [e, ...st.log].slice(0, MAX_LOG) }));
   }
@@ -123,18 +133,18 @@ class Store {
 
   private persist() {
     try {
-      const { sessionNo, startedAt, samples, log, level } = this.state;
-      localStorage.setItem(KEY, JSON.stringify({ sessionNo, startedAt, samples, log, level }));
+      const { sessionNo, startedAt, samples, mesoSamples, log, level } = this.state;
+      localStorage.setItem(KEY, JSON.stringify({ sessionNo, startedAt, samples, mesoSamples, log, level }));
     } catch {
       /* sin almacenamiento: la sesión vive solo en memoria */
     }
   }
 
   private broadcast() {
-    const { sessionNo, startedAt, samples, level, paused, capture, lastReadAt } = this.state;
+    const { sessionNo, startedAt, samples, mesoSamples, level, paused, capture, lastReadAt } = this.state;
     this.channel?.postMessage({
       type: "state",
-      state: { sessionNo, startedAt, samples: samples.slice(-60), level, paused, capture, lastReadAt, sentAt: Date.now() },
+      state: { sessionNo, startedAt, samples: samples.slice(-60), mesoSamples: mesoSamples.slice(-60), level, paused, capture, lastReadAt, sentAt: Date.now() },
     });
   }
 }

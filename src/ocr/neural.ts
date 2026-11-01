@@ -26,7 +26,7 @@ export function neuralBoxes(r: ExpRegion, amountStartX: number | null): { amount
  * Amplía con interpolación bilineal hasta ~56 px de alto y deja texto oscuro sobre blanco.
  * `mode` controla el preprocesado: "gray" conserva el anti-aliasing, "sharp" binariza.
  */
-export function prepare(img: Img, b: Box, mode: "gray" | "sharp"): Img {
+export function prepare(img: Img, b: Box, mode: "gray" | "sharp", darkText = false): Img {
   const x0 = Math.max(0, Math.floor(b.x)), y0 = Math.max(0, Math.floor(b.y));
   const w = Math.min(img.width - x0, Math.ceil(b.w)), h = Math.min(img.height - y0, Math.ceil(b.h));
   const f = Math.max(2, Math.round(56 / h));
@@ -37,7 +37,8 @@ export function prepare(img: Img, b: Box, mode: "gray" | "sharp"): Img {
     for (let x = 0; x < w; x++) {
       const i = ((y0 + y) * img.width + x0 + x) * 4;
       const r = img.data[i], g = img.data[i + 1], bl = img.data[i + 2];
-      lum[y * w + x] = Math.max((r + g + bl) / 3, g * 0.9);
+      // Texto claro (HUD) o texto oscuro sobre blanco (mesos): siempre "tinta = valor alto".
+      lum[y * w + x] = darkText ? 255 - (r + g + bl) / 3 : Math.max((r + g + bl) / 3, g * 0.9);
     }
   const sorted = Array.from(lum).sort((a, b) => a - b);
   const lo = sorted[Math.floor(sorted.length * 0.4)];
@@ -126,4 +127,20 @@ export function agreesWithGlyphs(neural: string, glyphs: string): boolean {
   if (!glyphs || neural.length !== glyphs.length) return true;
   for (let i = 0; i < glyphs.length; i++) if (glyphs[i] !== "?" && glyphs[i] !== neural[i]) return false;
   return true;
+}
+
+/** Mesos por Tesseract: dos preprocesados que deben coincidir. */
+export async function readMesoNeural(img: Img, field: Box, recognize: Recognize): Promise<number | null> {
+  const pad = field.h * 0.1;
+  const box = { x: field.x + pad, y: field.y + pad, w: field.w - pad * 2, h: field.h - pad * 2 };
+  const parse = (t: string) => {
+    const c = t.replace(/\s+/g, "").replace(/[lI|]/g, "1").replace(/[oO]/g, "0").replace(/\./g, ",");
+    if (!/^\d{1,3}(,\d{3})*$/.test(c)) return null;
+    const n = Number(c.replace(/,/g, ""));
+    return n <= 2_147_483_647 ? n : null;
+  };
+  const a = parse((await recognize(prepare(img, box, "gray", true))).text);
+  if (a === null) return null;
+  const b = parse((await recognize(prepare(img, box, "sharp", true))).text);
+  return a === b ? a : null;
 }

@@ -2,7 +2,9 @@ import baseTemplates from "../ocr/templates.json";
 import type { TemplateSet } from "../ocr/glyphs";
 import type { Img } from "../ocr/image";
 import type { Regions } from "../ocr/reader";
-import { readWithFallback, type PipelineRead } from "../ocr/pipeline";
+import { readMesosWithFallback, readWithFallback, type MesoPipelineRead, type PipelineRead } from "../ocr/pipeline";
+import type { MesoRegion } from "../ocr/meso";
+import { MesoValidator } from "../core/mesos";
 import { emptySamples, learnFromFrame, mergeTemplates, samplesToTemplates } from "../ocr/train";
 import { ReadingValidator } from "../core/validator";
 import { recognizeInBrowser } from "./neuralWorker";
@@ -15,6 +17,7 @@ const USER_TEMPLATES_KEY = "maple-track:templates:v1";
 export interface DebugFrame {
   canvas: HTMLCanvasElement;
   read: PipelineRead | null;
+  meso: MesoPipelineRead | null;
   at: number;
   verdict: string;
 }
@@ -41,6 +44,9 @@ class Tracker {
   private timer: number | null = null;
   private regions: Regions | undefined;
   private validator = new ReadingValidator();
+  private mesoValidator = new MesoValidator();
+  private mesoRegion: MesoRegion | null = null;
+  private mesoResume = true;
   private frameCounter = 0;
   private lastVideoTime = -1;
   private busy = false;
@@ -79,7 +85,9 @@ class Tracker {
       this.video = video;
       stream.getVideoTracks()[0].addEventListener("ended", () => this.stop());
       this.regions = undefined;
+      this.mesoRegion = null;
       this.resumeFlag = true;
+      this.mesoResume = true;
       store.set({ capture: "sharing", paused: false }, false);
       // Primera lectura apenas llegue un frame.
       window.setTimeout(() => this.tick(), 600);
@@ -106,6 +114,7 @@ class Tracker {
 
   resume() {
     this.resumeFlag = true;
+    this.mesoResume = true;
     store.set({ paused: false }, false);
     if (this.stream) {
       this.schedule();
@@ -115,7 +124,9 @@ class Tracker {
 
   newSession() {
     this.validator.reset();
+    this.mesoValidator.reset();
     this.resumeFlag = true;
+    this.mesoResume = true;
     store.newSession();
   }
 
@@ -229,10 +240,39 @@ class Tracker {
         result = v.retry ? "retry" : "rejected";
       }
     }
-    const debug: DebugFrame = { canvas: this.canvas, read, at: t, verdict };
+    const meso = await this.processMesos(img, frameId, t);
+    const debug: DebugFrame = { canvas: this.canvas, read, meso, at: t, verdict };
     this.lastDebug = debug;
     this.debugListeners.forEach((l) => l(debug));
     return result;
+  }
+
+  /** Lectura de mesos del mismo frame (independiente de la EXP). */
+  private async processMesos(img: Img, frameId: number, t: number): Promise<MesoPipelineRead | null> {
+    let r: MesoPipelineRead | null = null;
+    try {
+      r = await readMesosWithFallback(img, this.templates, this.mesoRegion, recognizeInBrowser);
+    } catch (e) {
+      console.warn("[maple-track] fallo leyendo mesos", e);
+      return null;
+    }
+    if (r.amount === null) {
+      if (!r.region) this.mesoRegion = null;
+      store.set({ mesoStatus: r.reason ?? "Sin lectura de mesos" }, false);
+      return r;
+    }
+    const last = store.get().mesoSamples.at(-1)?.amount ?? null;
+    const v = this.mesoValidator.validate(r.amount, frameId, last);
+    if (!v.ok) {
+      store.set({ mesoStatus: v.reason ?? "Lectura de mesos rechazada" }, false);
+      return r;
+    }
+    this.mesoRegion = r.region;
+    const seg = this.mesoResume;
+    this.mesoResume = false;
+    store.addMesoSample({ t, amount: r.amount, ...(seg ? { segmentStart: true } : {}) });
+    store.set({ mesoStatus: r.source === "neural" ? "Leído con Tesseract" : "Leyendo el inventario" }, false);
+    return r;
   }
 
   /** Entrada manual (corrige o reemplaza la lectura automática). */

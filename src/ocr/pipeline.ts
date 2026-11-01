@@ -2,7 +2,8 @@ import type { Img } from "./image";
 import { findExpCandidates } from "./hud";
 import { readExpGlyphs, segmentExp, type TemplateSet } from "./glyphs";
 import { readFrame, type FrameRead, type Regions } from "./reader";
-import { agreesWithGlyphs, readNeural, type Recognize } from "./neural";
+import { agreesWithGlyphs, readMesoNeural, readNeural, type Recognize } from "./neural";
+import { readMesos, type MesoRegion } from "./meso";
 
 export interface PipelineRead extends FrameRead {
   source: "glyph" | "neural" | null;
@@ -47,4 +48,36 @@ export async function readWithFallback(
     };
   }
   return { ...r, source: null };
+}
+
+// ---------------------------------------------------------------------------
+// Mesos
+// ---------------------------------------------------------------------------
+
+export interface MesoPipelineRead {
+  region: MesoRegion | null;
+  amount: number | null;
+  text: string | null;
+  source: "glyph" | "neural" | null;
+  reason: string | null;
+}
+
+const fmtMesos = (n: number) => n.toLocaleString("en-US");
+
+export async function readMesosWithFallback(
+  img: Img,
+  templates: TemplateSet,
+  prev?: MesoRegion | null,
+  recognize?: Recognize,
+): Promise<MesoPipelineRead> {
+  const { region, read } = readMesos(img, templates.meso ?? [], prev);
+  if (!region) return { region: null, amount: null, text: null, source: null, reason: "Inventario no visible (no se encontró el campo de mesos)" };
+  if (read?.amount != null) return { region, amount: read.amount, text: read.text, source: "glyph", reason: null };
+  if (recognize) {
+    const n = await readMesoNeural(img, region.field, recognize);
+    if (n !== null && agreesWithGlyphs(fmtMesos(n), read?.text ?? "")) {
+      return { region, amount: n, text: fmtMesos(n), source: "neural", reason: null };
+    }
+  }
+  return { region, amount: null, text: read?.text ?? null, source: null, reason: "Dígitos de mesos ambiguos" };
 }

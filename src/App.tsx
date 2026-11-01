@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { computeMetrics } from "./core/metrics";
+import { computeMesoMetrics } from "./core/mesos";
 import { requiredExp } from "./core/expTable";
 import { tracker } from "./tracker/tracker";
 import { fmtCompact, fmtDuration, fmtInt, useNow, useSession } from "./hooks";
@@ -77,6 +78,8 @@ export default function App() {
           <Stat label="Tiempo activo" value={fmtDuration(m.activeMs)} hint={m.latest ? `${s.samples.length} lecturas aceptadas` : "sin lecturas aún"} />
         </section>
 
+        <MesoPanel />
+
         <div className="grid gap-5 lg:grid-cols-[1.6fr_1fr]">
           <section className="rounded-2xl border border-line bg-panel p-4 sm:p-5">
             <h2 className="text-lg font-bold">EXP ganada en el tiempo</h2>
@@ -132,6 +135,50 @@ function Stat({ label, value, hint, big = false }: { label: string; value: strin
       <p className={`mt-1 font-extrabold leading-none ${big ? "text-4xl" : "text-3xl"}`}>{value}</p>
       <p className="mt-2 text-xs text-ink-soft">{hint}</p>
     </div>
+  );
+}
+
+function MesoPanel() {
+  const s = useSession();
+  const now = useNow(1000);
+  const mm = computeMesoMetrics(s.mesoSamples, now);
+  const signed = (n: number) => (n > 0 ? "+" : n < 0 ? "−" : "") + fmtCompact(Math.abs(n));
+  return (
+    <section aria-label="Mesos" className="rounded-2xl border border-line bg-panel p-4 sm:p-5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="flex items-center gap-2 text-lg font-bold">
+          <MesoCoin /> Mesos
+        </h2>
+        <p className="text-sm text-ink-soft">{s.capture === "sharing" ? s.mesoStatus : "Se miden cuando el inventario está abierto"}</p>
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <div>
+          <p className="text-sm font-bold text-ink-soft">Mesos por hora</p>
+          <p className="text-3xl font-extrabold">{mm.perHour !== null ? signed(mm.perHour) : "–"}</p>
+          <p className="text-xs text-ink-soft">últimos 5 minutos, incluye compras</p>
+        </div>
+        <div>
+          <p className="text-sm font-bold text-ink-soft">Cambio en la sesión</p>
+          <p className="text-3xl font-extrabold">{mm.current !== null ? signed(mm.net) : "–"}</p>
+          <p className="text-xs text-ink-soft">desde la primera lectura</p>
+        </div>
+        <div>
+          <p className="text-sm font-bold text-ink-soft">Total actual</p>
+          <p className="text-3xl font-extrabold">{mm.current !== null ? fmtInt(mm.current) : "–"}</p>
+          <p className="text-xs text-ink-soft">{s.mesoSamples.length} lecturas</p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/** Moneda simple (dibujo propio). */
+function MesoCoin() {
+  return (
+    <svg viewBox="0 0 20 20" className="h-5 w-5" aria-hidden>
+      <circle cx="10" cy="10" r="8.5" fill="#f5c542" stroke="#a8740c" strokeWidth="1.5" />
+      <circle cx="10" cy="10" r="4.5" fill="none" stroke="#a8740c" strokeWidth="1.2" />
+    </svg>
   );
 }
 

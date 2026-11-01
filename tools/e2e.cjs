@@ -41,6 +41,13 @@ const images = frames.map((f) => "data:image/png;base64," + fs.readFileSync(path
   console.log("LOG:\n" + log.join("\n---\n"));
   const rate = await page.locator("text=EXP por hora").first().locator("..").innerText();
   console.log("RATE:", rate.replace(/\n/g, " | "));
+  const meso = await page.locator("section[aria-label='Mesos']").innerText();
+  console.log("MESOS:", meso.replace(/\n/g, " | "));
+  const card = await page.context().newPage();
+  await card.goto(url.split("?")[0] + "?card=1");
+  await card.setViewportSize({ width: 560, height: 260 });
+  await card.waitForTimeout(1500);
+  await card.screenshot({ path: path.join(out, "e2e-card.png") });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({ path: path.join(out, "e2e-mobile.png"), fullPage: true });
   await browser.close();

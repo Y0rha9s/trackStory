@@ -29,6 +29,7 @@ Requiere Chrome o Edge de escritorio (API `getDisplayMedia`). Escala de HUD «Id
 | Plantillas | `src/ocr/train.ts`, `src/ocr/templates.json` | Prototipos agrupados por similitud (no promedios borrosos). El usuario puede enseñar su propio HUD desde el panel de diagnóstico |
 | Fallback neuronal | `src/ocr/neural.ts`, `src/tracker/neuralWorker.ts` | Tesseract LSTM en Web Worker, autoalojado en `public/ocr` (~15 MB, se carga solo si hace falta). Lee cantidad y % por separado con dos preprocesados que deben coincidir entre sí **y** con cada glifo que el matcher sí leyó |
 | Validación | `src/core/validator.ts` | Cantidad y % deben cuadrar con la curva de EXP (±0,03 pp); subir de nivel exige confirmar en otro frame; saltos se rechazan; nivel ilegible se deduce de la EXP solo si un único nivel calza y se confirma en 2 frames en 25 s; modo solo-% estima la EXP (marcada con ~) |
+| Mesos | `src/ocr/meso.ts`, `src/core/mesos.ts` | Busca en todo el frame la fila del inventario (moneda dorada + campo blanco), lee los dígitos negros con plantillas propias y Tesseract de respaldo. Un salto > 100k y > 20% del total se confirma en otro frame. Mesos/hora en ventana de 5 min (incluye compras) |
 | Métricas | `src/core/metrics.ts` | EXP total acumulada (cruza subidas de nivel), tasa en ventana de 5 min, tramos cortados por pausas o huecos > 90 s |
 | UI | `src/App.tsx`, `src/components/*` | Dashboard, gráfico, registro de lecturas, entrada manual, tarjeta para OBS (BroadcastChannel) |
 
@@ -45,6 +46,7 @@ Guarda PNGs completos del juego en una carpeta con un `labels.json`:
 npm run train -- ./mis-capturas            # entrena con 1/3 y evalúa con el resto
 npm run train -- ./mis-capturas --write    # regenera src/ocr/templates.json con todo
 npm run eval  -- ./mis-capturas            # pipeline completo con Tesseract
+npx tsx tools/train-meso.ts ./mis-mesos --write   # plantillas de mesos ({ file, mesos: "1,090,609", crop })
 ```
 
 Resultado actual en 75 capturas (incluye ventanas, escalas y HUD tapado): 58 por glifos + 5 por
@@ -53,7 +55,6 @@ rechazan.
 
 ## Pendiente (fase 2)
 
-- Mesos por hora (lectura del inventario)
 - Conteo de pociones en quickslots y costo por hora
 - Nombre del mapa
 

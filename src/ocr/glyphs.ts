@@ -28,6 +28,8 @@ export interface Template {
 export interface TemplateSet {
   exp: Template[];
   level: Template[];
+  /** dígitos negros del campo de mesos del inventario */
+  meso?: Template[];
 }
 
 export interface Match {
@@ -39,7 +41,7 @@ export interface Match {
 /** Mapa de tinta suave 0..1 sobre una caja. */
 export type InkFn = (x: number, y: number) => number;
 
-function sampleGrid(ink: InkFn, b: Box): number[] {
+export function sampleGrid(ink: InkFn, b: Box): number[] {
   const out = new Array(GW * GH).fill(0);
   for (let gy = 0; gy < GH; gy++)
     for (let gx = 0; gx < GW; gx++) {

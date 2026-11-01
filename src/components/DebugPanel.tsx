@@ -22,8 +22,9 @@ export function DebugPanel() {
     const src = frame.canvas;
     const c = full.current;
     if (c) {
-      // Solo el 35% inferior, que es donde se busca el HUD.
-      const top = Math.floor(src.height * 0.65);
+      // El 35% inferior (HUD); si el inventario está más arriba, se amplía para incluirlo.
+      const mesoY = frame.meso?.region?.field.y;
+      const top = Math.max(0, Math.min(Math.floor(src.height * 0.65), mesoY !== undefined ? Math.floor(mesoY - 40) : Infinity));
       const scale = Math.min(1, 1100 / src.width);
       c.width = src.width * scale;
       c.height = (src.height - top) * scale;
@@ -38,6 +39,7 @@ export function DebugPanel() {
       draw(frame.read?.debug.levelBox, "#f08a1c");
       draw(frame.read?.debug.expBox, "#7fbf1f");
       draw(frame.read?.debug.amountBox, "#38a3ff");
+      draw(frame.meso?.region?.field, "#e5b100");
     }
     const zoom = (target: HTMLCanvasElement | null, b: Box | null | undefined) => {
       if (!target || !b) return;
@@ -75,7 +77,7 @@ export function DebugPanel() {
     <section className="rounded-2xl border border-line bg-panel p-4 sm:p-5">
       <h2 className="text-lg font-bold">Diagnóstico</h2>
       <p className="mt-1 text-sm text-ink-soft">
-        Zona inferior del frame, donde se busca el HUD. En naranjo el nivel, en verde la EXP y en azul la cantidad.
+        Zona del frame donde se busca el HUD. En naranjo el nivel, en verde la EXP, en azul la cantidad y en amarillo los mesos.
       </p>
       {!frame ? (
         <p className="mt-4 text-ink-soft">Esperando el primer frame…</p>
@@ -96,6 +98,11 @@ export function DebugPanel() {
           </div>
           <p className="mt-3 text-sm">
             Veredicto: <b>{frame.verdict}</b>
+          </p>
+          <p className="mt-1 text-sm">
+            Mesos (amarillo): <b>{frame.meso?.text ?? "campo no encontrado"}</b>
+            {frame.meso?.source === "neural" && " (Tesseract)"}
+            {frame.meso?.reason && <span className="text-ink-soft"> · {frame.meso.reason}</span>}
           </p>
         </>
       )}
