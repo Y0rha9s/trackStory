@@ -6,6 +6,8 @@ import { tracker } from "./tracker/tracker";
 import { fmtCompact, fmtDuration, fmtInt, useNow, useSession } from "./hooks";
 import { ExpHero } from "./components/ExpHero";
 import { ExpChart } from "./components/ExpChart";
+import { MesoChart } from "./components/MesoChart";
+import { store } from "./tracker/store";
 import { DebugPanel } from "./components/DebugPanel";
 
 const debug = new URLSearchParams(location.search).has("debug");
@@ -142,7 +144,11 @@ function MesoPanel() {
   const s = useSession();
   const now = useNow(1000);
   const mm = computeMesoMetrics(s.mesoSamples, now);
-  const signed = (n: number) => (n > 0 ? "+" : n < 0 ? "−" : "") + fmtCompact(Math.abs(n));
+  const signed = (n: number) => (n > 0 ? "+" : n < 0 ? "−" : "") + fmtInt(Math.abs(n));
+  const hhmm = (t: number) => new Date(t).toLocaleTimeString("es-CL", { hour: "2-digit", minute: "2-digit", hour12: false });
+  const rebase = () => {
+    if (window.confirm("¿Usar el total actual como mesos iniciales? Se borra el historial de mesos de esta sesión.")) store.rebaseMesos();
+  };
   return (
     <section aria-label="Mesos" className="rounded-2xl border border-line bg-panel p-4 sm:p-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -151,23 +157,39 @@ function MesoPanel() {
         </h2>
         <p className="text-sm text-ink-soft">{s.capture === "sharing" ? s.mesoStatus : "Se miden cuando el inventario está abierto"}</p>
       </div>
-      <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
+      <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-4 lg:grid-cols-4">
+        <div>
+          <p className="text-sm font-bold text-ink-soft">Al iniciar</p>
+          <p className="text-2xl font-extrabold sm:text-3xl">{mm.start !== null ? fmtInt(mm.start) : "–"}</p>
+          <p className="text-xs text-ink-soft">{mm.startAt !== null ? `leído a las ${hhmm(mm.startAt)}` : "primera lectura confirmada"}</p>
+        </div>
+        <div>
+          <p className="text-sm font-bold text-ink-soft">Ahora</p>
+          <p className="text-2xl font-extrabold sm:text-3xl">{mm.current !== null ? fmtInt(mm.current) : "–"}</p>
+          <p className="text-xs text-ink-soft">{mm.peak !== null && mm.peak !== mm.current ? `máximo ${fmtInt(mm.peak)}` : `${s.mesoSamples.length} lecturas`}</p>
+        </div>
+        <div>
+          <p className="text-sm font-bold text-ink-soft">Ganado en la sesión</p>
+          <p className={`text-2xl font-extrabold sm:text-3xl ${mm.net < 0 ? "text-bad" : ""}`}>{mm.current !== null ? signed(mm.net) : "–"}</p>
+          <p className="text-xs text-ink-soft">ahora menos al iniciar</p>
+        </div>
         <div>
           <p className="text-sm font-bold text-ink-soft">Mesos por hora</p>
-          <p className="text-3xl font-extrabold">{mm.perHour !== null ? signed(mm.perHour) : "–"}</p>
+          <p className="text-2xl font-extrabold sm:text-3xl">{mm.perHour !== null ? (mm.perHour < 0 ? "−" : "+") + fmtCompact(Math.abs(mm.perHour)) : "–"}</p>
           <p className="text-xs text-ink-soft">últimos 5 minutos, incluye compras</p>
         </div>
-        <div>
-          <p className="text-sm font-bold text-ink-soft">Cambio en la sesión</p>
-          <p className="text-3xl font-extrabold">{mm.current !== null ? signed(mm.net) : "–"}</p>
-          <p className="text-xs text-ink-soft">desde la primera lectura</p>
-        </div>
-        <div>
-          <p className="text-sm font-bold text-ink-soft">Total actual</p>
-          <p className="text-3xl font-extrabold">{mm.current !== null ? fmtInt(mm.current) : "–"}</p>
-          <p className="text-xs text-ink-soft">{s.mesoSamples.length} lecturas</p>
-        </div>
       </div>
+      <div className="mt-4">
+        <MesoChart samples={s.mesoSamples} />
+      </div>
+      {mm.current !== null && (
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-sm text-ink-soft">
+          <p>¿El inicio no corresponde a lo que tenías? Puedes fijarlo de nuevo.</p>
+          <button onClick={rebase} className="rounded-lg border border-line px-2.5 py-1 font-bold text-ink">
+            Usar el total actual como inicio
+          </button>
+        </div>
+      )}
     </section>
   );
 }

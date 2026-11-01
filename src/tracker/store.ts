@@ -114,6 +114,14 @@ class Store {
     this.set((st) => ({ mesoSamples: [...st.mesoSamples, s].slice(-MAX_SAMPLES) }));
   }
 
+  /** Toma la última lectura de mesos como nuevo punto de partida. */
+  rebaseMesos() {
+    this.set((st) => {
+      const last = st.mesoSamples.at(-1);
+      return { mesoSamples: last ? [{ ...last, segmentStart: true }] : [] };
+    });
+  }
+
   log(e: LogEntry) {
     this.set((st) => ({ log: [e, ...st.log].slice(0, MAX_LOG) }));
   }

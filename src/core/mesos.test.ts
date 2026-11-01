@@ -9,6 +9,13 @@ describe("mesos", () => {
     expect(parseMesos("1,09,609")).toBeNull();
     expect(parseMesos("2,147,483,648")).toBeNull();
   });
+  it("los mesos iniciales se confirman en dos frames", () => {
+    const v = new MesoValidator();
+    expect(v.validate(1_000_000, 1, null).ok).toBe(false);
+    expect(v.validate(1_000_000, 1, null).ok).toBe(false); // mismo frame
+    expect(v.validate(5, 2, null).ok).toBe(false); // lectura distinta: no confirma
+    expect(v.validate(5, 3, null).ok).toBe(true);
+  });
   it("cambios chicos se aceptan directo", () => {
     const v = new MesoValidator();
     expect(v.validate(1_000_500, 1, 1_000_000).ok).toBe(true);
@@ -24,5 +31,7 @@ describe("mesos", () => {
     const m = computeMesoMetrics(s, 300_000);
     expect(Math.round(m.perHour!)).toBe(180_000);
     expect(m.net).toBe(15_000);
+    expect(m.start).toBe(1_000_000);
+    expect(m.peak).toBe(1_015_000);
   });
 });

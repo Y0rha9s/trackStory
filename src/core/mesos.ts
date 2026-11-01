@@ -22,7 +22,17 @@ export class MesoValidator {
   }
 
   validate(amount: number, frameId: number, last: number | null): { ok: boolean; reason?: string; retry?: boolean } {
-    if (last === null) return { ok: true };
+    // El punto de partida define toda la sesión: se exige verlo igual en dos frames distintos
+    // (evita que un número cortado mientras se abre el inventario quede como "mesos iniciales").
+    if (last === null) {
+      const p = this.pending;
+      if (p && p.frameId !== frameId && Math.abs(p.amount - amount) <= Math.max(1_000, amount * 0.01)) {
+        this.pending = null;
+        return { ok: true };
+      }
+      this.pending = { amount, frameId };
+      return { ok: false, reason: "Confirmando los mesos iniciales", retry: true };
+    }
     const delta = Math.abs(amount - last);
     if (delta <= BIG_JUMP_ABS || delta <= last * BIG_JUMP_REL) {
       this.pending = null;
@@ -41,8 +51,13 @@ export class MesoValidator {
 
 export interface MesoMetrics {
   current: number | null;
+  /** total al iniciar la sesión (primera lectura confirmada) */
+  start: number | null;
+  startAt: number | null;
   net: number;
   perHour: number | null;
+  /** máximo alcanzado en la sesión */
+  peak: number | null;
 }
 
 const WINDOW_MS = 5 * 60_000;
@@ -50,7 +65,7 @@ const MAX_GAP_MS = 90_000;
 const MIN_ELAPSED_MS = 20_000;
 
 export function computeMesoMetrics(samples: MesoSample[], now: number): MesoMetrics {
-  if (!samples.length) return { current: null, net: 0, perHour: null };
+  if (!samples.length) return { current: null, start: null, startAt: null, net: 0, perHour: null, peak: null };
   const sorted = [...samples].sort((a, b) => a.t - b.t);
   const last = sorted.at(-1)!;
   // Tramo actual (cortado por pausas o huecos largos).
@@ -61,5 +76,12 @@ export function computeMesoMetrics(samples: MesoSample[], now: number): MesoMetr
   if (win.length >= 2 && win.at(-1)!.t - win[0].t >= MIN_ELAPSED_MS) {
     perHour = ((win.at(-1)!.amount - win[0].amount) * 3_600_000) / (win.at(-1)!.t - win[0].t);
   }
-  return { current: last.amount, net: last.amount - sorted[0].amount, perHour };
+  return {
+    current: last.amount,
+    start: sorted[0].amount,
+    startAt: sorted[0].t,
+    net: last.amount - sorted[0].amount,
+    perHour,
+    peak: Math.max(...sorted.map((s) => s.amount)),
+  };
 }
