@@ -7,6 +7,7 @@ import { fmtCompact, fmtDuration, fmtInt, useNow, useSession } from "./hooks";
 import { ExpHero } from "./components/ExpHero";
 import { ExpChart } from "./components/ExpChart";
 import { MesoChart } from "./components/MesoChart";
+import { HuntPanel } from "./components/HuntPanel";
 import { store } from "./tracker/store";
 import { DebugPanel } from "./components/DebugPanel";
 
@@ -81,6 +82,8 @@ export default function App() {
         </section>
 
         <MesoPanel />
+
+        <HuntPanel level={m.latest?.level ?? null} ratePerHour={m.ratePerHour} expToNext={m.expToNext} />
 
         <div className="grid gap-5 lg:grid-cols-[1.6fr_1fr]">
           <section className="rounded-2xl border border-line bg-panel p-4 sm:p-5">
