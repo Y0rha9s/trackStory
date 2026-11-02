@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { computeMetrics } from "./core/metrics";
 import { computeMesoMetrics } from "./core/mesos";
 import { requiredExp } from "./core/expTable";
@@ -8,16 +8,57 @@ import { ExpHero } from "./components/ExpHero";
 import { ExpChart } from "./components/ExpChart";
 import { MesoChart } from "./components/MesoChart";
 import { HuntPanel } from "./components/HuntPanel";
+import { GearPanel } from "./components/GearPanel";
+import { BuildPanel } from "./components/BuildPanel";
+import { QuestsPanel } from "./components/QuestsPanel";
+import { CharacterBar } from "./components/CharacterBar";
 import { store } from "./tracker/store";
+import { mapWatch, useMapWatch } from "./mapWatch";
+import { characters, useCharacters } from "./characters";
 import { DebugPanel } from "./components/DebugPanel";
 
 const debug = new URLSearchParams(location.search).has("debug");
+
+const TABS = [
+  { id: "tracker", label: "Tracker" },
+  { id: "gear", label: "Equipo y daño" },
+  { id: "build", label: "Build" },
+  { id: "quests", label: "Quests" },
+] as const;
+type TabId = (typeof TABS)[number]["id"];
+const TAB_KEY = "maple-track:tab";
+const initialTab = (): TabId => {
+  try {
+    const t = localStorage.getItem(TAB_KEY);
+    return TABS.some((x) => x.id === t) ? (t as TabId) : "tracker";
+  } catch {
+    return "tracker";
+  }
+};
 
 export default function App() {
   const s = useSession();
   const now = useNow(1000);
   const m = computeMetrics(s.samples, now);
   const sharing = s.capture === "sharing";
+  // El nivel que lee el tracker se vuelca solo al personaje activo (si tiene «Nivel automático»).
+  const { active } = useCharacters();
+  const detected = m.latest?.level ?? null;
+  useEffect(() => {
+    if (detected !== null && active.autoLevel && active.gear.level !== detected) characters.updateGear({ level: detected });
+  }, [detected, active.id, active.autoLevel, active.gear.level]);
+  // Mapa actual: se lee el minimapa cada minuto mientras haya pantalla compartida (en cualquier pestaña).
+  const watching = useMapWatch().auto;
+  useEffect(() => (watching ? mapWatch.run(() => tracker.snapshot()) : undefined), [watching, sharing]);
+  const [tab, setTabState] = useState<TabId>(initialTab);
+  const setTab = (t: TabId) => {
+    setTabState(t);
+    try {
+      localStorage.setItem(TAB_KEY, t);
+    } catch {
+      /* ignorar */
+    }
+  };
 
   return (
     <div className="mx-auto max-w-6xl px-4 pb-16 sm:px-6">
@@ -60,7 +101,26 @@ export default function App() {
         </Banner>
       )}
 
-      <main className="space-y-5">
+      <CharacterBar />
+
+      <nav aria-label="Secciones" className="mb-5 flex gap-1 border-b border-line">
+        {TABS.map((t) => (
+          <button
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            aria-current={tab === t.id ? "page" : undefined}
+            className={`-mb-px rounded-t-xl border-x border-t px-4 py-2 font-bold ${tab === t.id ? "border-line bg-panel text-ink" : "border-transparent text-ink-soft hover:text-ink"}`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </nav>
+
+      {tab === "gear" && <GearPanel detectedLevel={m.latest?.level ?? null} />}
+      {tab === "build" && <BuildPanel detectedLevel={m.latest?.level ?? null} />}
+      {tab === "quests" && <QuestsPanel detectedLevel={m.latest?.level ?? null} />}
+
+      <main className={`space-y-5 ${tab === "tracker" ? "" : "hidden"}`}>
         <div className="rounded-3xl border border-line bg-panel p-4 sm:p-6">
           <ExpHero m={m} />
         </div>

@@ -1,4 +1,4 @@
-import { levelsMatching, pctConsistent, requiredExp, MAX_LEVEL } from "./expTable";
+import { levelsMatching, pctConsistent, percentFor, requiredExp, MAX_LEVEL } from "./expTable";
 
 /** Lo que el OCR extrajo de un frame (antes de validar). */
 export interface RawReading {
@@ -37,6 +37,20 @@ interface Pending {
 
 const INFER_WINDOW_MS = 25_000;
 const INFER_MIN_PCT = 0.5;
+/** Una subida de nivel se sospecha si el % cae al menos esto (la muerte quita unos pocos %, no la mitad de la barra). */
+const ROLLOVER_DROP_PCT = 50;
+
+/**
+ * Justo tras subir de nivel la EXP es ~0 y calza con el nivel viejo y el nuevo, y el dígito nuevo suele
+ * leerse mal o quedar ambiguo. Si la barra venía alta y ahora está casi vacía, el nivel siguiente es el candidato.
+ */
+function rolloverLevel(sessionLevel: number | null, lastExp: number | null, amount: number | null, pct: number | null): number | null {
+  if (sessionLevel === null || lastExp === null || amount === null || pct === null) return null;
+  const next = sessionLevel + 1;
+  if (next > MAX_LEVEL) return null;
+  if (percentFor(sessionLevel, lastExp) - pct < ROLLOVER_DROP_PCT) return null;
+  return pctConsistent(next, amount, pct) ? next : null;
+}
 
 /**
  * Valida lecturas OCR contra la curva de EXP y la continuidad de nivel.
@@ -68,7 +82,12 @@ export class ReadingValidator {
     if (r.amount !== null && r.pct !== null) {
       const candidates = levelsMatching(r.amount, r.pct);
       if (level !== null) {
-        if (!pctConsistent(level, r.amount, r.pct)) {
+        const next = level === sessionLevel ? rolloverLevel(sessionLevel, lastExp, r.amount, r.pct) : null;
+        if (next !== null) {
+          // Dígito del nivel nuevo mal leído (p. ej. 36 como 35): la barra se vació, así que es el nivel siguiente.
+          level = next;
+          levelSource = "exp";
+        } else if (!pctConsistent(level, r.amount, r.pct)) {
           if (candidates.length === 1 && candidates[0] !== level) {
             return {
               ok: false,
@@ -82,6 +101,10 @@ export class ReadingValidator {
             retry: true,
           };
         }
+      } else if (rolloverLevel(sessionLevel, lastExp, r.amount, r.pct) !== null && (!r.levelHint || hintMatches(r.levelHint, sessionLevel! + 1))) {
+        // Nivel ilegible justo tras subir: no exigir el 0,5 % mínimo; sigue pasando por la confirmación de 2 frames.
+        level = sessionLevel! + 1;
+        levelSource = "exp";
       } else {
         // Nivel ilegible: inferirlo desde la EXP si hay un único candidato.
         if (candidates.length !== 1) {

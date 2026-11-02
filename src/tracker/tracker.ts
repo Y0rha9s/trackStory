@@ -152,6 +152,11 @@ class Tracker {
     }, INTERVAL_MS);
   }
 
+  /** Un frame de la pantalla compartida, para lectores que se disparan a mano (p. ej. la ventana de skills). */
+  snapshot(): Img | null {
+    return this.grab()?.img ?? null;
+  }
+
   /** Captura el frame actual del video. Devuelve null si no hay video. */
   private grab(): { img: Img; frameId: number } | null {
     const v = this.video;

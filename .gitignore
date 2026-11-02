@@ -22,3 +22,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Datos descargados de MeowDB (uso interno, no se publican)
+/data/
+tools/samples/skills/full-frame.png

@@ -117,3 +117,23 @@ describe("nivel deducido con sesión en curso", () => {
     expect(res.ok).toBe(false);
   });
 });
+
+describe("subida de nivel", () => {
+  const req35 = requiredExp(35);
+  const lastExp = Math.round(req35 * 0.97);
+  const after = { amount: 1200, pct: Number(((1200 / requiredExp(36)) * 100).toFixed(2)) };
+
+  it("dígito mal leído (36 leído como 35) con la barra vacía: sube a 36 tras 2 frames", () => {
+    const v = new ReadingValidator();
+    expect(v.validate(r({ level: 35, ...after, frameId: 1 }), 35, lastExp).ok).toBe(false);
+    const res = v.validate(r({ level: 35, ...after, frameId: 2 }), 35, lastExp);
+    expect(res.ok && res.value.level).toBe(36);
+  });
+
+  it("nivel ilegible con poca EXP tras subir: no se queda rechazado", () => {
+    const v = new ReadingValidator();
+    expect(v.validate(r({ level: null, ...after, frameId: 1 }), 35, lastExp).ok).toBe(false);
+    const res = v.validate(r({ level: null, ...after, frameId: 2 }), 35, lastExp);
+    expect(res.ok && res.value.level).toBe(36);
+  });
+});

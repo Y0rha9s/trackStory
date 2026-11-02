@@ -1,4 +1,7 @@
 import { parseWorld, type World } from "./world";
+import { parseQuests, type Quest } from "../core/quests";
+import { parseSkills } from "../core/build";
+import { parseCrafting, parseGear, parseQuestRewards, parseTickets, type GearItem, type ItemSources } from "../core/gear";
 
 /**
  * Descarga los archivos de OSMS Data Explorer en el navegador (no se incluyen en el proyecto)
@@ -39,7 +42,8 @@ function sources(): Source[] {
   const custom = getCustomProxy();
   const list: Source[] = [];
   if (custom) list.push({ label: "proxy propio", url: (f) => (custom.includes("{file}") ? custom.replace("{file}", f) : custom.replace(/\/?$/, "/") + f) });
-  list.push({ label: "proxy del sitio", url: (f) => new URL(`./api/osms?file=${f}`, document.baseURI).href });
+  // En `vite dev` api/osms.ts no es una función: Vite intentaría compilarla como módulo y mostraría un error.
+  if (!import.meta.env.DEV) list.push({ label: "proxy del sitio", url: (f) => new URL(`./api/osms?file=${f}`, document.baseURI).href });
   list.push({ label: "OSMS directo", url: (f) => DIRECT + f });
   return list;
 }
@@ -105,3 +109,46 @@ export function loadWorld(): Promise<LoadResult> {
 export function resetWorld() {
   inflight = null;
 }
+
+const fileInflight = new Map<string, Promise<unknown>>();
+
+/** Un archivo extra de OSMS, con los mismos orígenes y caché que el mundo. */
+function loadOsmsFile(file: string): Promise<unknown> {
+  let p = fileInflight.get(file);
+  if (!p) {
+    p = (async () => {
+      const errors: string[] = [];
+      for (const src of sources()) {
+        try {
+          const url = src.url(file);
+          return (await cachedJson(url)) ?? (await fetchJson(url));
+        } catch (e) {
+          errors.push(`${src.label}: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+      throw new Error(errors.join(" · "));
+    })();
+    p.catch(() => fileInflight.delete(file));
+    fileInflight.set(file, p);
+  }
+  return p;
+}
+
+/** items.json de OSMS (equipos con requisitos y stats). */
+export const loadGear = async (): Promise<GearItem[]> => parseGear(await loadOsmsFile("items.json"));
+
+/** De dónde sale cada ítem: recetas (crafting.json) y recompensas de quest (quests.json). Si falla, queda vacío. */
+export async function loadItemSources(): Promise<ItemSources> {
+  const [craft, quest, tickets] = await Promise.all([
+    loadOsmsFile("crafting.json").then(parseCrafting, () => new Map()),
+    loadOsmsFile("quests.json").then(parseQuestRewards, () => new Map()),
+    loadOsmsFile("items.json").then(parseTickets, () => []),
+  ]);
+  return { craft, quest, tickets };
+}
+
+/** quests.json de OSMS (comparte descarga y caché con las fuentes de ítems). */
+export const loadQuests = async (): Promise<Quest[]> => parseQuests(await loadOsmsFile("quests.json"));
+
+/** skills.json de OSMS: skills de cada job con su nivel máximo y descripción. */
+export const loadSkills = async () => parseSkills(await loadOsmsFile("skills.json"));

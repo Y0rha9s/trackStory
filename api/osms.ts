@@ -1,11 +1,11 @@
 /**
  * Proxy mínimo para Vercel: reenvía los archivos públicos de OSMS Data Explorer cuando el
- * navegador no puede pedirlos directo (CORS). Solo permite los tres archivos que usa la app
+ * navegador no puede pedirlos directo (CORS). Solo permite los archivos que usa la app
  * y deja que la CDN de Vercel los guarde un día, para no cargar el sitio de OSMS.
  *
  *   GET /api/osms?file=maps.json
  */
-const ALLOWED = new Set(["maps.json", "monsters.json", "lookups.json"]);
+const ALLOWED = new Set(["maps.json", "monsters.json", "lookups.json", "items.json", "crafting.json", "quests.json", "skills.json"]);
 const UPSTREAM = "https://osmsdataexplorer.com/data/current/";
 
 export default async function handler(req: Request): Promise<Response> {

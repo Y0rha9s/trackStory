@@ -32,6 +32,12 @@ export interface MapInfo {
   isTown: boolean;
   /** id de mob por cada punto de spawn */
   spawns: number[];
+  /** mapas a los que se llega por portal */
+  exits: number[];
+  /** NPCs que hay en el mapa */
+  npcs: number[];
+  /** a dónde te devuelve un pergamino o la muerte (el pueblo base) */
+  returnMapId: number | null;
 }
 
 export interface MapSummary {
@@ -49,6 +55,9 @@ export interface World {
   mobs: Map<number, MobInfo>;
   /** timers por mob y mapa: `${mobId}:${mapId}` → segundos */
   timers: Map<string, number>;
+  /** mapas donde aparece cada NPC */
+  npcMaps: Map<number, number[]>;
+  npcNames: Map<number, string>;
 }
 
 // Regla de MeowDB (documentada por Minerva, ADR 0008): un spawn sin timer reaparece cada 7,56 s;
@@ -90,6 +99,7 @@ export function parseWorld(mapsJson: Json, monstersJson: Json, lookupsJson?: Jso
   const mobNames = ((lookupsJson?.mob_names ?? {}) as Record<string, string>) || {};
 
   const maps = new Map<number, MapInfo>();
+  const npcMaps = new Map<number, number[]>();
   const regions = mapsJson.regions;
   if (!Array.isArray(regions)) throw new Error("maps.json no tiene la forma esperada");
   for (const r of regions as Json[]) {
@@ -108,11 +118,19 @@ export function parseWorld(mapsJson: Json, monstersJson: Json, lookupsJson?: Jso
         }
         spawns.push(mob);
       }
-      maps.set(id, { id, name, street, region: str(m.region), isTown: m.is_town === true, spawns });
+      const ids = (v: unknown) => ((Array.isArray(v) ? v : []) as unknown[]).map(num).filter(Number.isFinite);
+      const ret = num(m.return_map_id);
+      maps.set(id, { id, name, street, region: str(m.region), isTown: m.is_town === true, spawns, exits: ids(m.exits), npcs: ids(m.npcs), returnMapId: Number.isFinite(ret) && ret > 0 ? ret : null });
+      for (const npc of (Array.isArray(m.npcs) ? m.npcs : []) as unknown[]) {
+        const n = num(npc);
+        if (Number.isFinite(n)) npcMaps.set(n, [...(npcMaps.get(n) ?? []), id]);
+      }
     }
   }
   if (!maps.size || !mobs.size) throw new Error("Los archivos de OSMS vinieron vacíos");
-  return { maps, mobs, timers };
+  const npcNames = new Map<number, string>();
+  for (const [k, v] of Object.entries((lookupsJson?.npc_names ?? {}) as Record<string, string>)) npcNames.set(Number(k), String(v));
+  return { maps, mobs, timers, npcMaps, npcNames };
 }
 
 export function summarize(world: World, mapId: number): MapSummary | null {
@@ -140,6 +158,21 @@ export function summarize(world: World, mapId: number): MapSummary | null {
     minLevel: mobs.length ? Math.min(...mobs.map((m) => m.level)) : 0,
     maxLevel: mobs.length ? Math.max(...mobs.map((m) => m.level)) : 0,
   };
+}
+
+/** Mapas donde aparece un mob, los que tienen más puntos de spawn primero. */
+export function mapsWithMob(world: World, mobId: number, limit = 4): { map: MapInfo; spawns: number }[] {
+  const out: { map: MapInfo; spawns: number }[] = [];
+  for (const map of world.maps.values()) {
+    const n = map.spawns.filter((id) => id === mobId).length;
+    if (n) out.push({ map, spawns: n });
+  }
+  return out.sort((a, b) => b.spawns - a.spawns).slice(0, limit);
+}
+
+/** Mapas donde está un NPC. */
+export function mapsWithNpc(world: World, npcId: number, limit = 3): MapInfo[] {
+  return (world.npcMaps.get(npcId) ?? []).slice(0, limit).flatMap((id) => world.maps.get(id) ?? []);
 }
 
 /** Busca mapas por nombre o calle, sin importar mayúsculas ni tildes. */

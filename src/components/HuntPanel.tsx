@@ -3,8 +3,9 @@ import { bestMapsFor, meowdbMapUrl, meowdbMobUrl, searchMaps, summarize, type Ma
 import { getCustomProxy, loadWorld, OSMS_CREDIT, resetWorld, setCustomProxy } from "../data/loader";
 import { estimateHunt } from "../core/hunting";
 import { fmtCompact, fmtInt } from "../hooks";
+import { mapWatch, useMapWatch, type WatchStatus } from "../mapWatch";
+import { tracker } from "../tracker/tracker";
 
-const MAP_KEY = "maple-track:map:v1";
 const AUTO_KEY = "maple-track:osms-auto";
 
 const read = (k: string) => {
@@ -22,13 +23,50 @@ const write = (k: string, v: string) => {
   }
 };
 
+const WATCH_TEXT: Record<WatchStatus, string> = {
+  off: "",
+  waiting: "Esperando la primera lectura…",
+  noscreen: "Comparte la ventana del juego (pestaña Tracker) para detectar el mapa.",
+  none: "No veo el minimapa. Ábrelo en el juego (tecla M); mantengo el último mapa.",
+  closed: "El minimapa está minimizado: ábrelo para que se lea el nombre. Mantengo el último mapa.",
+  ok: "",
+  unknown: "Mapa nuevo: elígelo abajo en el buscador y lo recordaré.",
+};
+
+/** Detección automática del mapa leyendo el título del minimapa cada minuto. */
+function MapDetector({ name }: { name?: string }) {
+  const w = useMapWatch();
+  const learned = mapWatch.learnedCount();
+  return (
+    <div className="mt-2 rounded-xl border border-line bg-sky px-3 py-2 text-sm">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+        <label className="flex items-center gap-2 font-bold">
+          <input type="checkbox" checked={w.auto} onChange={(e) => mapWatch.setAuto(e.target.checked)} />
+          Detectar el mapa solo (cada minuto)
+        </label>
+        {w.auto && (
+          <button onClick={() => mapWatch.check(tracker.snapshot())} className="rounded-lg border border-line bg-panel px-2 py-0.5 font-bold">
+            Detectar ahora
+          </button>
+        )}
+        {w.auto && w.status === "ok" && <span className="text-ink-soft">Detectado{name ? `: ${name}` : ""}.</span>}
+      </div>
+      {w.auto && WATCH_TEXT[w.status] && <p className={`mt-1 ${w.status === "unknown" ? "font-bold" : "text-ink-soft"}`}>{WATCH_TEXT[w.status]}</p>}
+      <p className="mt-1 text-ink-soft">
+        Lee el nombre del minimapa (arriba a la izquierda). Cada mapa se enseña una vez; hay {learned} aprendido{learned === 1 ? "" : "s"}.
+      </p>
+    </div>
+  );
+}
+
 /** Mapa actual, sus mobs (nivel, HP, EXP) y estimaciones de caza con tu EXP/hora real. */
 export function HuntPanel({ level, ratePerHour, expToNext }: { level: number | null; ratePerHour: number | null; expToNext: number | null }) {
   const [world, setWorld] = useState<World | null>(null);
   const [status, setStatus] = useState<"idle" | "loading" | "error">("idle");
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
-  const [mapId, setMapId] = useState<number | null>(() => Number(read(MAP_KEY)) || null);
+  const watch = useMapWatch();
+  const mapId = watch.mapId;
 
   const load = () => {
     setStatus("loading");
@@ -48,8 +86,7 @@ export function HuntPanel({ level, ratePerHour, expToNext }: { level: number | n
   }, []);
 
   const choose = (id: number) => {
-    setMapId(id);
-    write(MAP_KEY, String(id));
+    mapWatch.choose(id);
     setQuery("");
   };
 
@@ -68,6 +105,8 @@ export function HuntPanel({ level, ratePerHour, expToNext }: { level: number | n
           </a>
         )}
       </div>
+
+      <MapDetector name={world && mapId ? world.maps.get(mapId)?.name : undefined} />
 
       {!world ? (
         <div className="mt-3">
