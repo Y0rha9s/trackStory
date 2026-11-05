@@ -28,6 +28,8 @@ export interface SessionState {
   // --- no persistido ---
   capture: CaptureStatus;
   captureError: string | null;
+  /** qué se está compartiendo (ventana/pantalla y tamaño) */
+  captureInfo: string | null;
   lastReadAt: number | null;
   nextReadAt: number | null;
   autoRead: boolean;
@@ -50,6 +52,7 @@ const fresh = (n = 1): SessionState => ({
   conflictLevel: null,
   capture: "idle",
   captureError: null,
+  captureInfo: null,
   lastReadAt: null,
   nextReadAt: null,
   autoRead: true,
@@ -60,7 +63,7 @@ function load(): SessionState {
     const raw = localStorage.getItem(KEY);
     if (raw) {
       const s = JSON.parse(raw);
-      return { ...fresh(), ...s, capture: "idle", captureError: null, nextReadAt: null, paused: false };
+      return { ...fresh(), ...s, capture: "idle", captureError: null, captureInfo: null, nextReadAt: null, paused: false };
     }
   } catch {
     /* almacenamiento bloqueado o corrupto: partir de cero */

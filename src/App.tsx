@@ -179,7 +179,7 @@ function CaptureChip() {
       ? s.paused
         ? "En pausa"
         : s.nextReadAt
-          ? `Leyendo en ${Math.max(0, Math.ceil((s.nextReadAt - now) / 1000))} s`
+          ? `Leyendo en ${Math.max(0, Math.ceil((s.nextReadAt - now) / 1000))} s${s.captureInfo ? ` · ${s.captureInfo}` : ""}`
           : "Compartiendo"
       : s.capture === "requesting"
         ? "Elige la ventana…"

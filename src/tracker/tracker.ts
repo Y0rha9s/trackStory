@@ -9,9 +9,15 @@ import { emptySamples, learnFromFrame, mergeTemplates, samplesToTemplates } from
 import { ReadingValidator } from "../core/validator";
 import { recognizeInBrowser } from "./neuralWorker";
 import { store, type LogEntry } from "./store";
+import { BLANK_HELP, STALE_HELP, frameHealth, surfaceLabel } from "./health";
 
 export const INTERVAL_MS = 10_000;
 const RETRY_DELAY_MS = 250;
+/** si pasa más que esto sin frames nuevos del track, la ventana no está enviando imagen */
+const STALE_MS = 25_000;
+/** lecturas seguidas con el video idéntico antes de avisar de que se congeló */
+const FROZEN_TICKS = 6;
+const HEALTH_NOTES = [BLANK_HELP, STALE_HELP];
 const USER_TEMPLATES_KEY = "maple-track:templates:v1";
 
 export interface DebugFrame {
@@ -47,6 +53,13 @@ class Tracker {
   private mesoValidator = new MesoValidator();
   private mesoRegion: MesoRegion | null = null;
   private mesoResume = true;
+  /** último frame entregado por el track (no depende de que la pestaña esté visible) */
+  private feed = document.createElement("canvas");
+  private feedCount = 0;
+  private feedAt = 0;
+  private feedUsed = -1;
+  private lastHash = -1;
+  private sameHash = 0;
   private frameCounter = 0;
   private lastVideoTime = -1;
   private busy = false;
@@ -73,18 +86,33 @@ class Tracker {
     }
     store.set({ capture: "requesting", captureError: null }, false);
     try {
+      // Sin forzar el tipo de superficie: sirve «Ventana» y «Toda la pantalla» (el juego se busca dentro del frame).
       const stream = await navigator.mediaDevices.getDisplayMedia({
-        video: { frameRate: { ideal: 5, max: 10 } },
+        video: { frameRate: { ideal: 10 } },
         audio: false,
       });
       this.stream = stream;
+      const track = stream.getVideoTracks()[0];
       const video = document.createElement("video");
       video.muted = true;
       video.playsInline = true;
       video.srcObject = stream;
+      // En el DOM (casi invisible) para que Chrome no deje de pintar el video cuando la pestaña queda detrás del juego.
+      video.setAttribute("aria-hidden", "true");
+      Object.assign(video.style, { position: "fixed", right: "0", bottom: "0", width: "160px", height: "90px", opacity: "0.01", pointerEvents: "none", zIndex: "-1" });
+      document.body.appendChild(video);
       await video.play();
       this.video = video;
-      stream.getVideoTracks()[0].addEventListener("ended", () => this.stop());
+      this.feedCount = 0;
+      this.feedAt = 0;
+      this.feedUsed = -1;
+      this.lastHash = -1;
+      this.sameHash = 0;
+      void this.pump(track);
+      track.addEventListener("ended", () => this.stop());
+      await this.firstFrame(video);
+      const surface = (track.getSettings() as { displaySurface?: string }).displaySurface;
+      store.set({ captureInfo: `${surfaceLabel(surface)} ${video.videoWidth}×${video.videoHeight}` }, false);
       this.regions = undefined;
       this.mesoRegion = null;
       this.resumeFlag = true;
@@ -103,9 +131,14 @@ class Tracker {
     this.clearTimer();
     this.stream?.getTracks().forEach((t) => t.stop());
     this.stream = null;
-    if (this.video) this.video.srcObject = null;
+    if (this.video) {
+      this.video.srcObject = null;
+      this.video.remove();
+    }
     this.video = null;
-    store.set({ capture: "idle", nextReadAt: null }, false);
+    this.feedCount = 0;
+    const note = HEALTH_NOTES.includes(store.get().captureError ?? "");
+    store.set({ capture: "idle", nextReadAt: null, captureInfo: null, ...(note ? { captureError: null } : {}) }, false);
   }
 
   pause() {
@@ -157,20 +190,88 @@ class Tracker {
     return this.grab()?.img ?? null;
   }
 
-  /** Captura el frame actual del video. Devuelve null si no hay video. */
-  private grab(): { img: Img; frameId: number } | null {
-    const v = this.video;
-    if (!v || !v.videoWidth) return null;
-    if (v.currentTime !== this.lastVideoTime) {
-      this.lastVideoTime = v.currentTime;
-      this.frameCounter++;
+  /** Espera a que llegue el primer frame real (en una ventana puede tardar hasta que el contenido cambie). */
+  private async firstFrame(video: HTMLVideoElement) {
+    const t0 = Date.now();
+    while (Date.now() - t0 < 4000 && (!video.videoWidth || (this.feedCount === 0 && video.readyState < 2))) await new Promise((r) => setTimeout(r, 100));
+  }
+
+  /**
+   * Lee los frames directamente del track (Chrome/Edge): llegan aunque la pestaña esté en segundo plano,
+   * que es justo lo que pasa mientras juegas. Si el navegador no lo ofrece se usa el elemento <video>.
+   */
+  private async pump(track: MediaStreamTrack) {
+    const Processor = (window as unknown as { MediaStreamTrackProcessor?: new (o: { track: MediaStreamTrack }) => { readable: ReadableStream<VideoFrame> } }).MediaStreamTrackProcessor;
+    if (!Processor) return;
+    const reader = new Processor({ track }).readable.getReader();
+    const ctx = this.feed.getContext("2d", { willReadFrequently: true })!;
+    let drawnAt = 0;
+    try {
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        const now = Date.now();
+        // se dibuja como mucho 2 veces por segundo; los demás frames se descartan para no cargar la CPU
+        if (now - drawnAt >= 500 && track.readyState === "live") {
+          drawnAt = now;
+          if (this.feed.width !== value.displayWidth || this.feed.height !== value.displayHeight) {
+            this.feed.width = value.displayWidth;
+            this.feed.height = value.displayHeight;
+          }
+          ctx.drawImage(value, 0, 0);
+          this.feedCount++;
+          this.feedAt = now;
+        }
+        value.close();
+      }
+    } catch {
+      /* el track terminó o el navegador no lo soporta: queda el <video> */
     }
-    this.canvas.width = v.videoWidth;
-    this.canvas.height = v.videoHeight;
+  }
+
+  /** Captura el frame actual (del track si hay, si no del video). Devuelve null si aún no hay imagen. */
+  private grab(): { img: Img; frameId: number } | null {
+    const useFeed = this.feedCount > 0 && Date.now() - this.feedAt < STALE_MS;
+    const v = this.video;
+    let src: CanvasImageSource;
+    let w: number;
+    let h: number;
+    if (useFeed) {
+      src = this.feed;
+      w = this.feed.width;
+      h = this.feed.height;
+      if (this.feedUsed !== this.feedCount) {
+        this.feedUsed = this.feedCount;
+        this.frameCounter++;
+      }
+    } else {
+      if (!v || !v.videoWidth) return null;
+      src = v;
+      w = v.videoWidth;
+      h = v.videoHeight;
+      if (v.currentTime !== this.lastVideoTime) {
+        this.lastVideoTime = v.currentTime;
+        this.frameCounter++;
+      }
+    }
+    this.canvas.width = w;
+    this.canvas.height = h;
     const ctx = this.canvas.getContext("2d", { willReadFrequently: true })!;
-    ctx.drawImage(v, 0, 0);
-    const data = ctx.getImageData(0, 0, v.videoWidth, v.videoHeight);
-    return { img: data, frameId: this.frameCounter };
+    ctx.drawImage(src, 0, 0);
+    return { img: ctx.getImageData(0, 0, w, h), frameId: this.frameCounter };
+  }
+
+  /** Avisa si el video llega negro o congelado; quita el aviso cuando vuelve a llegar imagen. Devuelve false si el frame es negro. */
+  private checkHealth(img: Img): boolean {
+    const h = frameHealth(img);
+    const stale = this.feedCount > 0 && Date.now() - this.feedAt >= STALE_MS;
+    this.sameHash = h.hash === this.lastHash ? this.sameHash + 1 : 0;
+    this.lastHash = h.hash;
+    const problem = h.blank ? BLANK_HELP : stale || this.sameHash >= FROZEN_TICKS ? STALE_HELP : null;
+    const cur = store.get().captureError;
+    if (problem) store.set({ captureError: problem }, false);
+    else if (cur && HEALTH_NOTES.includes(cur)) store.set({ captureError: null }, false);
+    return !h.blank;
   }
 
   /** Una lectura (con como máximo un reintento si fue ambigua y el video avanzó). */
@@ -180,6 +281,7 @@ class Tracker {
     try {
       let shot = this.grab();
       if (!shot) return;
+      if (!this.checkHealth(shot.img)) return;
       let outcome = await this.process(shot.img, shot.frameId);
       if (outcome === "retry") {
         await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
