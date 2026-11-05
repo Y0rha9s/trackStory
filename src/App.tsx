@@ -14,6 +14,7 @@ import { QuestsPanel } from "./components/QuestsPanel";
 import { CharacterBar } from "./components/CharacterBar";
 import { store } from "./tracker/store";
 import { mapWatch, useMapWatch } from "./mapWatch";
+import { openOverlay } from "./components/Overlay";
 import { characters, useCharacters } from "./characters";
 import { DebugPanel } from "./components/DebugPanel";
 
@@ -369,6 +370,7 @@ function ManualEntry() {
 }
 
 function StreamInfo() {
+  const [overlayMsg, setOverlayMsg] = useState<string | null>(null);
   const open = () => window.open(`${location.pathname}?card=1`, "maple-track-card", "width=560,height=260");
   return (
     <section className="rounded-2xl border border-line bg-panel p-4 sm:p-5">
@@ -377,9 +379,22 @@ function StreamInfo() {
         Abre una ventana compacta con nivel, EXP/hora y tiempo para subir. En OBS agrégala como «Captura de ventana» (no como fuente de
         navegador) y deja ambas ventanas abiertas en el mismo perfil del navegador.
       </p>
-      <button onClick={open} className="mt-3 rounded-lg border border-line px-3 py-1.5 font-bold">
-        Abrir tarjeta
-      </button>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <button onClick={open} className="rounded-lg border border-line px-3 py-1.5 font-bold">
+          Abrir tarjeta
+        </button>
+        <button
+          onClick={() => void openOverlay().then(setOverlayMsg)}
+          title="Ventana flotante siempre encima, para ver tu EXP/hora con el juego en ventana o en pantalla completa sin bordes"
+          className="rounded-lg bg-tile px-3 py-1.5 font-bold text-white"
+        >
+          Overlay siempre visible
+        </button>
+      </div>
+      {overlayMsg && <p className="mt-2 text-sm font-bold text-bad">{overlayMsg}</p>}
+      <p className="mt-2 max-w-prose text-sm text-ink-soft">
+        El overlay flota sobre el juego (ventana o pantalla completa sin bordes). Con pantalla completa exclusiva ningún navegador puede dibujar encima: usa «sin bordes» en el juego.
+      </p>
     </section>
   );
 }
